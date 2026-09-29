@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <!-- Required for accessing images on Android 12 and earlier -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Required minimum SDK level -->
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application android:label="Slideshow Viewer" android:icon="@drawable/ic_launcher">
+        <activity android:name="com.embarcadero.firemonkey.FMXNativeActivity"
+            android:label="Slideshow Viewer"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

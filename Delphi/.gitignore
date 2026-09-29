@@ -1,0 +1,44 @@
+# Delphi specific
+__history/
+__recovery/
+*.dsk
+*.dcuil
+*.o
+*.a
+*.dcu
+*.ddp
+*.exe
+*.res
+*.rsm
+*.map
+*.hpp
+*.lib
+*.objs
+*.or
+*.pas~
+*.dpr~
+*.dfm~
+*.asm~
+*.bpi
+*.cpp
+*.obj
+*.sbx
+*.local
+Debug/
+Release/
+
+# Platform-specific
+Android/Debug/
+Android/Release/
+Win32/Debug/
+Win32/Release/
+
+# IDE files
+.idea/
+*.iml
+*.suo
+*.sou
+
+# OS files
+.DS_Store
+Thumbs.db
