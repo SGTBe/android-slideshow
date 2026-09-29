@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Slideshow Viewer</string>
+    <string name="button_choose_folder">Choose Folder</string>
+    <string name="button_play_pause">Play</string>
+    <string name="label_display_time">Display Time</string>
+    <string name="label_transition">Transition</string>
+    <string name="transition_fade">Fade</string>
+    <string name="transition_slide">Slide</string>
+    <string name="transition_zoom">Zoom</string>
+    <string name="transition_none">None</string>
+</resources>
