@@ -42,9 +42,24 @@ uses
   Androidapi.JNI.DocumentsContract,
   FMX.Dialogs.Android,
   {$ENDIF}
-  FMX.Platform;
+  FMX.Platform,
+  FMX.Effects,
+  FMX.Filter.Effects,
+  FMX.MultiView;
 
 type
+  TImageLoadThread = class(TThread)
+  private
+    FFilePath: string;
+    FBitmap: TBitmap;
+    FOnLoadComplete: TProc<TBitmap>;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AFilePath: string; AOnLoadComplete: TProc<TBitmap>);
+    destructor Destroy; override;
+  end;
+
   TForm1 = class(TForm)
     VertScrollBox: TVertScrollBox;
     ImgMain: TImage;
@@ -59,6 +74,9 @@ type
     LabelImageInfo: TLabel;
     LabelFolderPath: TLabel;
     TimerSlide: TTimer;
+    ProgressBar: TProgressBar;
+    LabelStatus: TLabel;
+    ShadowEffect: TShadowEffect;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure BtnChooseFolderClick(Sender: TObject);
@@ -66,6 +84,8 @@ type
     procedure TimerSlideTimer(Sender: TObject);
     procedure TrackDelayChange(Sender: TObject);
     procedure CbTransitionChange(Sender: TObject);
+    procedure FormShow(Sender: TObject);
+    procedure ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo);
   private
     FFolder: string;
     FFiles: TStringList;
@@ -74,22 +94,28 @@ type
     FDelayMs: Integer;
     FTransition: string;
     FPlatform: string;
+    FLoadThread: TImageLoadThread;
+    FAnimatingOpacity: Boolean;
     procedure LoadImageFiles;
     procedure ShowImage(Index: Integer);
-    procedure ApplyTransition(const NewFile: string);
+    procedure ApplyTransition(NewBitmap: TBitmap);
     procedure SetDelayFromTrack;
     procedure UpdateUILabels;
+    procedure UpdateProgressBar;
     procedure LogMessage(const Msg: string);
     {$IFDEF ANDROID}
     procedure OpenFolderViaAndroidSAF;
+    procedure HandleAndroidFolderSelection(const TreeUri: string);
     {$ENDIF}
     {$IFDEF MSWINDOWS}
     procedure OpenFolderViaWin64Dialog;
     {$ENDIF}
+    procedure SafeLoadImage(const FilePath: string);
   public
     procedure AnimateFade(NewBitmap: TBitmap);
     procedure AnimateSlide(NewBitmap: TBitmap);
     procedure AnimateZoom(NewBitmap: TBitmap);
+    procedure AnimateScale(NewBitmap: TBitmap);
   end;
 
 var
@@ -98,6 +124,37 @@ var
 implementation
 
 {$R *.fmx}
+
+{ TImageLoadThread }
+
+constructor TImageLoadThread.Create(const AFilePath: string; AOnLoadComplete: TProc<TBitmap>);
+begin
+  inherited Create(True);
+  FFilePath := AFilePath;
+  FOnLoadComplete := AOnLoadComplete;
+  FBitmap := TBitmap.Create;
+  FreeOnTerminate := True;
+end;
+
+destructor TImageLoadThread.Destroy;
+begin
+  FreeAndNil(FBitmap);
+  inherited;
+end;
+
+procedure TImageLoadThread.Execute;
+begin
+  try
+    FBitmap.LoadFromFile(FFilePath);
+    TThread.Synchronize(nil, procedure
+    begin
+      if Assigned(FOnLoadComplete) then
+        FOnLoadComplete(FBitmap);
+    end);
+  except
+    // Silently handle errors
+  end;
+end;
 
 {$IFDEF MSWINDOWS}
 function SelectFolder(var Folder: string): Boolean;
@@ -136,6 +193,8 @@ begin
   FPlaying := False;
   FDelayMs := 5000;
   FTransition := 'Fade';
+  FAnimatingOpacity := False;
+  FLoadThread := nil;
 
   {$IFDEF MSWINDOWS}
   FPlatform := 'Windows 64-bit';
@@ -149,11 +208,12 @@ begin
 
   // Setup Transition ComboBox
   CbTransition.Items.Clear;
-  CbTransition.Items.Add('None');
   CbTransition.Items.Add('Fade');
   CbTransition.Items.Add('Slide');
   CbTransition.Items.Add('Zoom');
-  CbTransition.ItemIndex := 1;
+  CbTransition.Items.Add('Scale');
+  CbTransition.Items.Add('None');
+  CbTransition.ItemIndex := 0;
 
   // Setup TrackBar
   TrackDelay.Min := 1;
@@ -162,6 +222,12 @@ begin
 
   // Image settings
   ImgMain.WrapMode := TImageWrapMode.Fit;
+  ImgMain.Align := TAlignLayout.Client;
+
+  // Progress bar setup
+  ProgressBar.Max := 100;
+  ProgressBar.Value := 0;
+  ProgressBar.Visible := False;
 
   UpdateUILabels;
 end;
@@ -169,26 +235,54 @@ end;
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
   TimerSlide.Enabled := False;
+  if Assigned(FLoadThread) then
+  begin
+    FLoadThread.Terminate;
+    FLoadThread.WaitFor;
+  end;
   FreeAndNil(FFiles);
+end;
+
+procedure TForm1.FormShow(Sender: TObject);
+begin
+  // Initial welcome message
+  LogMessage('Welcome to Slideshow Viewer - ' + FPlatform);
 end;
 
 procedure TForm1.UpdateUILabels;
 begin
-  LabelDelayValue.Text := Format('%d seconds', [Round(TrackDelay.Value)]);
+  LabelDelayValue.Text := Format('%d second%s', [Round(TrackDelay.Value),
+    IfThen(TrackDelay.Value > 1, 's', '')]);
+
   if FFiles.Count > 0 then
-    LabelImageInfo.Text := Format('Image %d of %d', [FIndex + 1, FFiles.Count])
+    LabelImageInfo.Text := Format('Image %d of %d | %s', [
+      FIndex + 1,
+      FFiles.Count,
+      ExtractFileName(FFiles[FIndex])
+    ])
   else
     LabelImageInfo.Text := 'No images loaded';
 
   if FFolder <> '' then
-    LabelFolderPath.Text := 'Folder: ' + ExtractFileName(FFolder)
+    LabelFolderPath.Text := '📁 ' + ExtractFileName(FFolder)
   else
-    LabelFolderPath.Text := 'Folder: None selected';
+    LabelFolderPath.Text := '📁 No folder selected';
+end;
+
+procedure TForm1.UpdateProgressBar;
+var
+  Progress: Integer;
+begin
+  if FFiles.Count > 0 then
+  begin
+    Progress := Round((FIndex / FFiles.Count) * 100);
+    ProgressBar.Value := Progress;
+  end;
 end;
 
 procedure TForm1.LogMessage(const Msg: string);
 begin
-  LabelImageInfo.Text := Msg;
+  LabelStatus.Text := Msg;
 end;
 
 procedure TForm1.SetDelayFromTrack;
@@ -209,22 +303,46 @@ begin
     FTransition := CbTransition.Items[CbTransition.ItemIndex];
 end;
 
+procedure TForm1.ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo);
+begin
+  if EventInfo.GestureID = igiLongPress then
+  begin
+    if FPlaying then
+      BtnPlayPauseClick(nil);
+  end;
+end;
+
 {$IFDEF MSWINDOWS}
 procedure TForm1.OpenFolderViaWin64Dialog;
 begin
+  BtnChooseFolder.Enabled := False;
+  ProgressBar.Visible := True;
+  ProgressBar.Value := 0;
+  LogMessage('Opening folder browser...');
+
   if SelectFolder(FFolder) then
   begin
     if TDirectory.Exists(FFolder) then
     begin
-      LoadImageFiles;
-      if FFiles.Count > 0 then
+      LogMessage('Loading images...');
+      TThread.CreateAnonymousThread(procedure
       begin
-        FIndex := 0;
-        ShowImage(0);
-        LogMessage(Format('Loaded %d images from folder', [FFiles.Count]));
-      end
-      else
-        LogMessage('No images found in selected folder');
+        LoadImageFiles;
+        TThread.Synchronize(nil, procedure
+        begin
+          if FFiles.Count > 0 then
+          begin
+            FIndex := 0;
+            ShowImage(0);
+            LogMessage(Format('Successfully loaded %d image(s)', [FFiles.Count]));
+          end
+          else
+            LogMessage('No images found in selected folder');
+          UpdateUILabels;
+          ProgressBar.Visible := False;
+          BtnChooseFolder.Enabled := True;
+        end);
+      end).Start;
     end
     else
       LogMessage('Folder does not exist');
@@ -232,7 +350,7 @@ begin
   else
     LogMessage('No folder selected');
 
-  UpdateUILabels;
+  BtnChooseFolder.Enabled := True;
 end;
 {$ENDIF}
 
@@ -241,14 +359,57 @@ procedure TForm1.OpenFolderViaAndroidSAF;
 var
   Intent: JIntent;
 begin
-  Intent := TJIntent.Create;
-  Intent.setAction(StringToJString('android.intent.action.OPEN_DOCUMENT_TREE'));
-  SharedActivity.startActivityForResult(Intent, 42);
+  BtnChooseFolder.Enabled := False;
+  LogMessage('Opening folder picker...');
+
+  try
+    Intent := TJIntent.Create;
+    Intent.setAction(StringToJString('android.intent.action.OPEN_DOCUMENT_TREE'));
+    Intent.addFlags(TJIntent.JavaClass.FLAG_GRANT_READ_URI_PERMISSION);
+    Intent.addFlags(TJIntent.JavaClass.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+    SharedActivity.startActivityForResult(Intent, 42);
+  except
+    on E: Exception do
+      LogMessage('Error opening folder picker: ' + E.Message);
+  end;
+
+  BtnChooseFolder.Enabled := True;
+end;
+
+procedure TForm1.HandleAndroidFolderSelection(const TreeUri: string);
+begin
+  if TreeUri <> '' then
+  begin
+    FFolder := TreeUri;
+    LogMessage('Loading images from selected folder...');
+    TThread.CreateAnonymousThread(procedure
+    begin
+      LoadImageFiles;
+      TThread.Synchronize(nil, procedure
+      begin
+        if FFiles.Count > 0 then
+        begin
+          FIndex := 0;
+          ShowImage(0);
+          LogMessage(Format('Successfully loaded %d image(s)', [FFiles.Count]));
+        end
+        else
+          LogMessage('No images found in selected folder');
+        UpdateUILabels;
+      end);
+    end).Start;
+  end
+  else
+    LogMessage('Folder selection cancelled');
 end;
 {$ENDIF}
 
 procedure TForm1.BtnChooseFolderClick(Sender: TObject);
 begin
+  FPlaying := False;
+  TimerSlide.Enabled := False;
+  BtnPlayPause.Text := 'Play';
+
   {$IFDEF MSWINDOWS}
   OpenFolderViaWin64Dialog;
   {$ENDIF}
@@ -303,8 +464,9 @@ begin
 
   FPlaying := not FPlaying;
   TimerSlide.Enabled := FPlaying;
-  BtnPlayPause.Text := IfThen(FPlaying, 'Pause', 'Play');
+  BtnPlayPause.Text := IfThen(FPlaying, '⏸ Pause', '▶ Play');
   UpdateUILabels;
+  LogMessage(IfThen(FPlaying, 'Slideshow started', 'Slideshow paused'));
 end;
 
 procedure TForm1.TimerSlideTimer(Sender: TObject);
@@ -318,164 +480,175 @@ begin
 
   ShowImage(FIndex);
   UpdateUILabels;
+  UpdateProgressBar;
+end;
+
+procedure TForm1.SafeLoadImage(const FilePath: string);
+begin
+  // Kill existing load thread if still running
+  if Assigned(FLoadThread) then
+  begin
+    FLoadThread.Terminate;
+    FLoadThread := nil;
+  end;
+
+  // Create new load thread
+  FLoadThread := TImageLoadThread.Create(FilePath, procedure(Bitmap: TBitmap)
+  begin
+    if Assigned(Bitmap) and not Bitmap.IsEmpty then
+    begin
+      ApplyTransition(Bitmap);
+    end;
+  end);
+
+  FLoadThread.Start;
 end;
 
 procedure TForm1.ShowImage(Index: Integer);
-var
-  FileName: string;
-  NewBitmap: TBitmap;
 begin
   if (Index < 0) or (Index >= FFiles.Count) then
     Exit;
 
-  FileName := FFiles[Index];
-  try
-    NewBitmap := TBitmap.Create;
-    try
-      NewBitmap.LoadFromFile(FileName);
-      ApplyTransition(NewBitmap);
-    finally
-      NewBitmap.Free;
-    end;
-  except
-    on E: Exception do
-      LogMessage('Error loading image: ' + E.Message);
-  end;
-end;
-
-procedure TForm1.ApplyTransition(const NewFile: string);
-var
-  NewBitmap: TBitmap;
-begin
-  NewBitmap := TBitmap.Create;
-  try
-    NewBitmap.LoadFromFile(NewFile);
-    ApplyTransition(NewBitmap);
-  finally
-    NewBitmap.Free;
-  end;
+  SafeLoadImage(FFiles[Index]);
 end;
 
 procedure TForm1.ApplyTransition(NewBitmap: TBitmap);
 begin
-  if FTransition = 'None' then
-  begin
-    ImgMain.Bitmap.Assign(NewBitmap);
-  end
-  else if FTransition = 'Fade' then
-  begin
-    AnimateFade(NewBitmap);
-  end
-  else if FTransition = 'Slide' then
-  begin
-    AnimateSlide(NewBitmap);
-  end
-  else if FTransition = 'Zoom' then
-  begin
-    AnimateZoom(NewBitmap);
+  case IndexText(FTransition, ['Fade', 'Slide', 'Zoom', 'Scale', 'None']) of
+    0: AnimateFade(NewBitmap);
+    1: AnimateSlide(NewBitmap);
+    2: AnimateZoom(NewBitmap);
+    3: AnimateScale(NewBitmap);
+    4: ImgMain.Bitmap.Assign(NewBitmap);
   end;
 end;
 
 procedure TForm1.AnimateFade(NewBitmap: TBitmap);
 var
   FadeOutAnim: TFloatAnimation;
-  FadeInAnim: TFloatAnimation;
 begin
+  if FAnimatingOpacity then
+    Exit;
+
+  FAnimatingOpacity := True;
+
   FadeOutAnim := TFloatAnimation.Create(nil);
-  try
-    FadeOutAnim.Parent := ImgMain;
-    FadeOutAnim.StartValue := 1.0;
-    FadeOutAnim.StopValue := 0.0;
-    FadeOutAnim.Duration := 0.3;
-    FadeOutAnim.PropertyName := 'Opacity';
-    FadeOutAnim.OnFinish := procedure(Sender: TObject)
+  FadeOutAnim.Parent := ImgMain;
+  FadeOutAnim.StartValue := 1.0;
+  FadeOutAnim.StopValue := 0.0;
+  FadeOutAnim.Duration := 0.25;
+  FadeOutAnim.PropertyName := 'Opacity';
+  FadeOutAnim.OnFinish := procedure(Sender: TObject)
+  var
+    FadeInAnim: TFloatAnimation;
+  begin
+    ImgMain.Bitmap.Assign(NewBitmap);
+    ImgMain.Opacity := 0.0;
+
+    FadeInAnim := TFloatAnimation.Create(nil);
+    FadeInAnim.Parent := ImgMain;
+    FadeInAnim.StartValue := 0.0;
+    FadeInAnim.StopValue := 1.0;
+    FadeInAnim.Duration := 0.25;
+    FadeInAnim.PropertyName := 'Opacity';
+    FadeInAnim.OnFinish := procedure(Sender: TObject)
     begin
-      ImgMain.Bitmap.Assign(NewBitmap);
-      FadeInAnim := TFloatAnimation.Create(nil);
-      try
-        FadeInAnim.Parent := ImgMain;
-        FadeInAnim.StartValue := 0.0;
-        FadeInAnim.StopValue := 1.0;
-        FadeInAnim.Duration := 0.3;
-        FadeInAnim.PropertyName := 'Opacity';
-        FadeInAnim.Start;
-      except
-        FadeInAnim.Free;
-      end;
+      FAnimatingOpacity := False;
     end;
-    FadeOutAnim.Start;
-  except
-    FadeOutAnim.Free;
+    FadeInAnim.Start;
   end;
+  FadeOutAnim.Start;
 end;
 
 procedure TForm1.AnimateSlide(NewBitmap: TBitmap);
 var
   SlideOutAnim: TFloatAnimation;
-  SlideInAnim: TFloatAnimation;
 begin
   SlideOutAnim := TFloatAnimation.Create(nil);
-  try
-    SlideOutAnim.Parent := ImgMain;
-    SlideOutAnim.StartValue := 0;
-    SlideOutAnim.StopValue := ImgMain.Width;
-    SlideOutAnim.Duration := 0.4;
-    SlideOutAnim.PropertyName := 'Position.X';
-    SlideOutAnim.OnFinish := procedure(Sender: TObject)
-    begin
-      ImgMain.Bitmap.Assign(NewBitmap);
-      ImgMain.Position.X := -ImgMain.Width;
-      SlideInAnim := TFloatAnimation.Create(nil);
-      try
-        SlideInAnim.Parent := ImgMain;
-        SlideInAnim.StartValue := -ImgMain.Width;
-        SlideInAnim.StopValue := 0;
-        SlideInAnim.Duration := 0.4;
-        SlideInAnim.PropertyName := 'Position.X';
-        SlideInAnim.Start;
-      except
-        SlideInAnim.Free;
-      end;
-    end;
-    SlideOutAnim.Start;
-  except
-    SlideOutAnim.Free;
+  SlideOutAnim.Parent := ImgMain;
+  SlideOutAnim.StartValue := 0;
+  SlideOutAnim.StopValue := ImgMain.Width;
+  SlideOutAnim.Duration := 0.35;
+  SlideOutAnim.PropertyName := 'Position.X';
+  SlideOutAnim.OnFinish := procedure(Sender: TObject)
+  var
+    SlideInAnim: TFloatAnimation;
+  begin
+    ImgMain.Bitmap.Assign(NewBitmap);
+    ImgMain.Position.X := -ImgMain.Width;
+    ImgMain.Opacity := 1.0;
+
+    SlideInAnim := TFloatAnimation.Create(nil);
+    SlideInAnim.Parent := ImgMain;
+    SlideInAnim.StartValue := -ImgMain.Width;
+    SlideInAnim.StopValue := 0;
+    SlideInAnim.Duration := 0.35;
+    SlideInAnim.PropertyName := 'Position.X';
+    SlideInAnim.Start;
   end;
+  SlideOutAnim.Start;
 end;
 
 procedure TForm1.AnimateZoom(NewBitmap: TBitmap);
 var
   ZoomOutAnim: TFloatAnimation;
-  ZoomInAnim: TFloatAnimation;
 begin
   ZoomOutAnim := TFloatAnimation.Create(nil);
-  try
-    ZoomOutAnim.Parent := ImgMain;
-    ZoomOutAnim.StartValue := 1.0;
-    ZoomOutAnim.StopValue := 0.5;
-    ZoomOutAnim.Duration := 0.3;
-    ZoomOutAnim.PropertyName := 'Scale.X';
-    ZoomOutAnim.OnFinish := procedure(Sender: TObject)
-    begin
-      ImgMain.Bitmap.Assign(NewBitmap);
-      ImgMain.Scale.X := 0.5;
-      ImgMain.Scale.Y := 0.5;
-      ZoomInAnim := TFloatAnimation.Create(nil);
-      try
-        ZoomInAnim.Parent := ImgMain;
-        ZoomInAnim.StartValue := 0.5;
-        ZoomInAnim.StopValue := 1.0;
-        ZoomInAnim.Duration := 0.3;
-        ZoomInAnim.PropertyName := 'Scale.X';
-        ZoomInAnim.Start;
-      except
-        ZoomInAnim.Free;
-      end;
-    end;
-    ZoomOutAnim.Start;
-  except
-    ZoomOutAnim.Free;
+  ZoomOutAnim.Parent := ImgMain;
+  ZoomOutAnim.StartValue := 1.0;
+  ZoomOutAnim.StopValue := 0.7;
+  ZoomOutAnim.Duration := 0.3;
+  ZoomOutAnim.PropertyName := 'Scale.X';
+  ZoomOutAnim.OnFinish := procedure(Sender: TObject)
+  var
+    ZoomInAnim: TFloatAnimation;
+  begin
+    ImgMain.Bitmap.Assign(NewBitmap);
+    ImgMain.Scale.X := 0.7;
+    ImgMain.Scale.Y := 0.7;
+    ImgMain.Opacity := 1.0;
+
+    ZoomInAnim := TFloatAnimation.Create(nil);
+    ZoomInAnim.Parent := ImgMain;
+    ZoomInAnim.StartValue := 0.7;
+    ZoomInAnim.StopValue := 1.0;
+    ZoomInAnim.Duration := 0.3;
+    ZoomInAnim.PropertyName := 'Scale.X';
+    TFloatAnimation.Create(nil).Parent := ImgMain;
+    (ImgMain.ChildrenCount - 1);
+    ZoomInAnim.Start;
   end;
+  ZoomOutAnim.Start;
+end;
+
+procedure TForm1.AnimateScale(NewBitmap: TBitmap);
+var
+  ScaleOutAnim: TFloatAnimation;
+begin
+  ScaleOutAnim := TFloatAnimation.Create(nil);
+  ScaleOutAnim.Parent := ImgMain;
+  ScaleOutAnim.StartValue := 1.0;
+  ScaleOutAnim.StopValue := 1.1;
+  ScaleOutAnim.Duration := 0.4;
+  ScaleOutAnim.PropertyName := 'Scale.X';
+  ScaleOutAnim.OnFinish := procedure(Sender: TObject)
+  var
+    ScaleInAnim: TFloatAnimation;
+  begin
+    ImgMain.Bitmap.Assign(NewBitmap);
+    ImgMain.Scale.X := 1.1;
+    ImgMain.Scale.Y := 1.1;
+    ImgMain.Opacity := 1.0;
+
+    ScaleInAnim := TFloatAnimation.Create(nil);
+    ScaleInAnim.Parent := ImgMain;
+    ScaleInAnim.StartValue := 1.1;
+    ScaleInAnim.StopValue := 1.0;
+    ScaleInAnim.Duration := 0.4;
+    ScaleInAnim.PropertyName := 'Scale.X';
+    ScaleInAnim.Start;
+  end;
+  ScaleOutAnim.Start;
 end;
 
 end.

@@ -9,6 +9,7 @@ object Form1: TForm1
   FormFactor.Height = 480
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnShow = FormShow
   object VertScrollBox: TVertScrollBox
     Align = Client
     Size.Width = 480.000000000000000000
@@ -20,8 +21,12 @@ object Form1: TForm1
     object ImgMain: TImage
       Align = Top
       Size.Width = 480.000000000000000000
-      Size.Height = 400.000000000000000000
+      Size.Height = 420.000000000000000000
       Size.PlatformDefault = False
+      OnGesture = ImgMainGesture
+      object ShadowEffect: TShadowEffect
+        Enabled = True
+      end
     end
     object LayoutControls: TGridLayout
       Align = Top
@@ -40,31 +45,34 @@ object Form1: TForm1
       Padding.Top = 4.000000000000000000
       Padding.Right = 4.000000000000000000
       Padding.Bottom = 4.000000000000000000
-      Position.Y = 400.000000000000000000
+      Position.Y = 420.000000000000000000
       Size.Width = 480.000000000000000000
-      Size.Height = 350.000000000000000000
+      Size.Height = 360.000000000000000000
       Size.PlatformDefault = False
       RowCollection = <
         item
-          Value = 40.000000000000000000
+          Value = 35.000000000000000000
         end
         item
-          Value = 40.000000000000000000
+          Value = 35.000000000000000000
         end
         item
-          Value = 30.000000000000000000
+          Value = 8.000000000000000000
         end
         item
-          Value = 30.000000000000000000
+          Value = 20.000000000000000000
         end
         item
-          Value = 30.000000000000000000
+          Value = 20.000000000000000000
         end
         item
-          Value = 30.000000000000000000
+          Value = 25.000000000000000000
         end
         item
-          Value = 30.000000000000000000
+          Value = 25.000000000000000000
+        end
+        item
+          Value = 25.000000000000000000
         end>
       object BtnChooseFolder: TButton
         Align = Client
@@ -73,8 +81,9 @@ object Form1: TForm1
         Size.Width = 224.000000000000000000
         Size.Height = 40.000000000000000000
         Size.PlatformDefault = False
+        StyleLookup = 'toolarrow'
         TabOrder = 0
-        Text = 'Choose Folder'
+        Text = '📂 Open Folder'
         OnClick = BtnChooseFolderClick
       end
       object BtnPlayPause: TButton
@@ -84,8 +93,9 @@ object Form1: TForm1
         Size.Width = 224.000000000000000000
         Size.Height = 40.000000000000000000
         Size.PlatformDefault = False
+        StyleLookup = 'toolarrow'
         TabOrder = 1
-        Text = 'Play'
+        Text = '▶ Play'
         OnClick = BtnPlayPauseClick
       end
       object LabelDisplayTime: TLabel
@@ -96,6 +106,7 @@ object Form1: TForm1
         Size.Height = 20.000000000000000000
         Size.PlatformDefault = False
         Text = 'Display Time (seconds)'
+        TextSettings.FontColor = clWhite
       end
       object TrackDelay: TTrackBar
         Align = Top
@@ -112,25 +123,37 @@ object Form1: TForm1
       object LabelDelayValue: TLabel
         Align = Top
         Position.X = 12.000000000000000000
-        Position.Y = 116.000000000000000000
+        Position.Y = 108.000000000000000000
         Size.Width = 456.000000000000000000
-        Size.Height = 20.000000000000000000
+        Size.Height = 16.000000000000000000
         Size.PlatformDefault = False
         Text = '5 seconds'
+        TextSettings.FontColor = clSilver
+        TextSettings.FontSize = 12.000000000000000000
+      end
+      object ProgressBar: TProgressBar
+        Align = Top
+        Position.X = 12.000000000000000000
+        Position.Y = 124.000000000000000000
+        Size.Width = 456.000000000000000000
+        Size.Height = 8.000000000000000000
+        Size.PlatformDefault = False
+        Value = 0.000000000000000000
       end
       object LabelTransition: TLabel
         Align = Top
         Position.X = 12.000000000000000000
-        Position.Y = 144.000000000000000000
+        Position.Y = 136.000000000000000000
         Size.Width = 456.000000000000000000
         Size.Height = 20.000000000000000000
         Size.PlatformDefault = False
         Text = 'Transition Effect'
+        TextSettings.FontColor = clWhite
       end
       object CbTransition: TComboBox
         Align = Top
         Position.X = 12.000000000000000000
-        Position.Y = 172.000000000000000000
+        Position.Y = 160.000000000000000000
         Size.Width = 456.000000000000000000
         Size.Height = 28.000000000000000000
         Size.PlatformDefault = False
@@ -140,20 +163,35 @@ object Form1: TForm1
       object LabelImageInfo: TLabel
         Align = Top
         Position.X = 12.000000000000000000
-        Position.Y = 208.000000000000000000
+        Position.Y = 196.000000000000000000
         Size.Width = 456.000000000000000000
         Size.Height = 20.000000000000000000
         Size.PlatformDefault = False
         Text = 'No images loaded'
+        TextSettings.FontColor = clYellow
+        TextSettings.FontSize = 14.000000000000000000
       end
       object LabelFolderPath: TLabel
         Align = Top
         Position.X = 12.000000000000000000
-        Position.Y = 236.000000000000000000
+        Position.Y = 224.000000000000000000
         Size.Width = 456.000000000000000000
         Size.Height = 20.000000000000000000
         Size.PlatformDefault = False
-        Text = 'Folder: None selected'
+        Text = '📁 No folder selected'
+        TextSettings.FontColor = clSilver
+      end
+      object LabelStatus: TLabel
+        Align = Top
+        Position.X = 12.000000000000000000
+        Position.Y = 252.000000000000000000
+        Size.Width = 456.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Ready to start'
+        TextSettings.FontColor = clWhite
+        TextSettings.FontSize = 12.000000000000000000
+        WordWrap = True
       end
     end
   end
