@@ -1,6 +1,5 @@
 package com.sgtbe.slideshow
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -8,15 +7,18 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.DocumentsContract
 import android.util.Log
-import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.lifecycleScope
 import com.sgtbe.slideshow.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -28,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private var isPlaying = false
     private var displayTimeMs = 5000L
     private var slideshowRunnable: Runnable? = null
+    private var imageLoadJob: Job? = null
 
     private val pickFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -48,18 +51,23 @@ class MainActivity : AppCompatActivity() {
             return@registerForActivityResult
         }
 
-        imageUris.clear()
-        imageUris.addAll(readImageUris(root))
+        // Walking a large folder tree through the document provider is slow, so do it off the main thread.
+        lifecycleScope.launch {
+            val found = withContext(Dispatchers.IO) { readImageUris(root) }
 
-        if (imageUris.isEmpty()) {
-            Toast.makeText(this, "No images found in that folder", Toast.LENGTH_SHORT).show()
-            return@registerForActivityResult
-        }
+            imageUris.clear()
+            imageUris.addAll(found)
 
-        currentIndex = 0
-        showCurrentImage()
-        if (!isPlaying) {
-            startSlideshow()
+            if (imageUris.isEmpty()) {
+                Toast.makeText(this@MainActivity, "No images found in that folder", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            currentIndex = 0
+            showCurrentImage()
+            if (!isPlaying) {
+                startSlideshow()
+            }
         }
     }
 
@@ -178,37 +186,50 @@ class MainActivity : AppCompatActivity() {
         }
 
         val uri = imageUris[currentIndex]
-        animateImageChange(uri)
-    }
+        val width = binding.imageView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val height = binding.imageView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
 
-    private fun animateImageChange(uri: Uri) {
-        when (binding.transitionSpinner.selectedItem?.toString()) {
-            "Fade" -> fadeTo(uri)
-            "Slide" -> slideTo(uri)
-            "Zoom" -> zoomTo(uri)
-            else -> loadImage(uri)
+        // Decode on a background thread so large photos don't freeze the UI, then animate on the main thread.
+        imageLoadJob?.cancel()
+        imageLoadJob = lifecycleScope.launch {
+            val bitmap = withContext(Dispatchers.IO) { decodeBitmapFromUri(uri, width, height) }
+            if (bitmap == null) {
+                Log.w(TAG, "Could not decode image: $uri")
+                return@launch
+            }
+            animateImageChange(bitmap)
         }
     }
 
-    private fun fadeTo(uri: Uri) {
+    private fun animateImageChange(bitmap: Bitmap) {
+        binding.imageView.animate().cancel()
+        when (binding.transitionSpinner.selectedItem?.toString()) {
+            "Fade" -> fadeTo(bitmap)
+            "Slide" -> slideTo(bitmap)
+            "Zoom" -> zoomTo(bitmap)
+            else -> setImage(bitmap)
+        }
+    }
+
+    private fun fadeTo(bitmap: Bitmap) {
         binding.imageView.animate()
             .alpha(0f)
             .setDuration(200)
             .withEndAction {
-                loadImage(uri)
+                setImage(bitmap)
                 binding.imageView.alpha = 1f
             }
             .start()
     }
 
-    private fun slideTo(uri: Uri) {
+    private fun slideTo(bitmap: Bitmap) {
         val width = binding.imageView.width.toFloat().takeIf { it > 0f } ?: 800f
         binding.imageView.animate()
             .translationX(-width)
             .alpha(0f)
             .setDuration(220)
             .withEndAction {
-                loadImage(uri)
+                setImage(bitmap)
                 binding.imageView.translationX = width
                 binding.imageView.alpha = 1f
                 binding.imageView.animate()
@@ -220,14 +241,14 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
-    private fun zoomTo(uri: Uri) {
+    private fun zoomTo(bitmap: Bitmap) {
         binding.imageView.animate()
             .scaleX(0.8f)
             .scaleY(0.8f)
             .alpha(0.5f)
             .setDuration(220)
             .withEndAction {
-                loadImage(uri)
+                setImage(bitmap)
                 binding.imageView.scaleX = 0.8f
                 binding.imageView.scaleY = 0.8f
                 binding.imageView.alpha = 0.5f
@@ -241,8 +262,7 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
-    private fun loadImage(uri: Uri) {
-        val bitmap = decodeBitmapFromUri(uri)
+    private fun setImage(bitmap: Bitmap) {
         binding.imageView.setImageBitmap(bitmap)
         binding.imageView.alpha = 1f
         binding.imageView.translationX = 0f
@@ -250,10 +270,8 @@ class MainActivity : AppCompatActivity() {
         binding.imageView.scaleY = 1f
     }
 
-    private fun decodeBitmapFromUri(uri: Uri): Bitmap? {
-        val width = binding.imageView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val height = binding.imageView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-
+    // Reads the image size first, then decodes a downsampled copy close to the view size.
+    private fun decodeBitmapFromUri(uri: Uri, width: Int, height: Int): Bitmap? = try {
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
@@ -264,7 +282,7 @@ class MainActivity : AppCompatActivity() {
 
         val sampleSize = calculateInSampleSize(options, width, height)
 
-        return contentResolver.openInputStream(uri)?.use { inputStream ->
+        contentResolver.openInputStream(uri)?.use { inputStream ->
             BitmapFactory.Options().apply {
                 inJustDecodeBounds = false
                 inSampleSize = sampleSize
@@ -273,6 +291,12 @@ class MainActivity : AppCompatActivity() {
                 BitmapFactory.decodeStream(inputStream, null, bitmapOptions)
             }
         }
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to load image: $uri", e)
+        null
+    } catch (e: OutOfMemoryError) {
+        Log.w(TAG, "Out of memory loading image: $uri", e)
+        null
     }
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
@@ -312,5 +336,9 @@ class MainActivity : AppCompatActivity() {
 
         traverse(root)
         return results.sortedBy { it.lastPathSegment.orEmpty().lowercase() }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
     }
 }
