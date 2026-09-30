@@ -1,0 +1,180 @@
+object Form1: TForm1
+  Left = 0
+  Top = 0
+  Caption = 'Slideshow Viewer'
+  ClientHeight = 800
+  ClientWidth = 480
+  Position = MainFormCenter
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop, iPhone, iPad]
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnShow = FormShow
+  DesignerMasterStyle = 0
+  object VertScrollBox: TVertScrollBox
+    Align = Client
+    Size.Width = 480.000000000000000000
+    Size.Height = 800.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 0
+    Viewport.Width = 480.000000000000000000
+    Viewport.Height = 800.000000000000000000
+    object ImgMain: TImage
+      MultiResBitmap = <
+        item
+        end>
+      Align = Top
+      Size.Width = 480.000000000000000000
+      Size.Height = 420.000000000000000000
+      Size.PlatformDefault = False
+      object ShadowEffect: TShadowEffect
+        Distance = 3.000000000000000000
+        Direction = 45.000000000000000000
+        Softness = 0.300000011920929000
+        Opacity = 0.600000023841857900
+        ShadowColor = claBlack
+      end
+    end
+    object LayoutControls: TGridLayout
+      Align = Top
+      ItemHeight = 40.000000000000000000
+      ItemWidth = 460.000000000000000000
+      Padding.Left = 4.000000000000000000
+      Padding.Top = 4.000000000000000000
+      Padding.Right = 4.000000000000000000
+      Padding.Bottom = 4.000000000000000000
+      Orientation = Horizontal
+      Margins.Left = 8.000000000000000000
+      Margins.Top = 8.000000000000000000
+      Margins.Right = 8.000000000000000000
+      Margins.Bottom = 8.000000000000000000
+      Position.X = 8.000000000000000000
+      Position.Y = 428.000000000000000000
+      Size.Width = 464.000000000000000000
+      Size.Height = 360.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 1
+      object BtnChooseFolder: TButton
+        Align = Client
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        StyleLookup = 'toolarrow'
+        TabOrder = 0
+        Text = 'Open Folder'
+        OnClick = BtnChooseFolderClick
+      end
+      object BtnPlayPause: TButton
+        Align = Client
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        StyleLookup = 'toolarrow'
+        TabOrder = 1
+        Text = 'Play'
+        OnClick = BtnPlayPauseClick
+      end
+      object LabelDisplayTime: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 84.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claWhite
+        Text = 'Display Time (seconds)'
+      end
+      object TrackDelay: TTrackBar
+        Align = Top
+        CanParentFocus = True
+        Max = 20.000000000000000000
+        Min = 1.000000000000000000
+        Orientation = Horizontal
+        Position.X = 4.000000000000000000
+        Position.Y = 124.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 19.000000000000000000
+        Size.PlatformDefault = False
+        Value = 5.000000000000000000
+        OnChange = TrackDelayChange
+      end
+      object LabelDelayValue: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 164.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claSilver
+        Text = '5 seconds'
+      end
+      object ProgressBar: TProgressBar
+        Align = Top
+        Orientation = Horizontal
+        Position.X = 4.000000000000000000
+        Position.Y = 204.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+      end
+      object LabelTransition: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 244.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claWhite
+        Text = 'Transition Effect'
+      end
+      object CbTransition: TComboBox
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 284.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 2
+        OnChange = CbTransitionChange
+      end
+      object LabelImageInfo: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 324.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claYellow
+        Text = 'No images loaded'
+      end
+      object LabelFolderPath: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 364.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claSilver
+        Text = #240#376#8220#129' No folder selected'
+      end
+      object LabelStatus: TLabel
+        Align = Top
+        Position.X = 4.000000000000000000
+        Position.Y = 404.000000000000000000
+        Size.Width = 460.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.FontColor = claWhite
+        Text = 'Ready to start'
+      end
+    end
+  end
+  object TimerSlide: TTimer
+    Enabled = False
+    Interval = 5000
+    OnTimer = TimerSlideTimer
+    Left = 16
+    Top = 8
+  end
+end

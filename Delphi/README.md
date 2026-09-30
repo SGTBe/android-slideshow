@@ -51,7 +51,7 @@ A professional-grade, cross-platform slideshow application built with **Delphi R
 Delphi/
 ├── SlideshowApp.dpr           # Main project file
 ├── Unit1.pas                  # Complete application logic
-├── SlideshowApp.fmx           # FireMonkey form design
+├── Unit1.fmx                  # FireMonkey form design (must match Unit1.pas)
 ├── SlideshowApp.cfg           # Compiler configuration
 ├── AndroidManifest.template.xml  # Android permissions & metadata
 ├── .gitignore                 # Ignore build artifacts

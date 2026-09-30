@@ -3,6 +3,11 @@ unit Unit1;
 interface
 
 uses
+  {$IFDEF MSWINDOWS}
+  Winapi.Windows,
+  Winapi.ShlObj,
+  Winapi.ActiveX,
+  {$ENDIF}
   System.SysUtils,
   System.Types,
   System.UITypes,
@@ -10,6 +15,7 @@ uses
   System.Variants,
   System.IOUtils,
   System.Math,
+  System.StrUtils,
   System.Generics.Collections,
   FMX.Types,
   FMX.Controls,
@@ -26,11 +32,6 @@ uses
   FMX.Memo.Types,
   FMX.ScrollBox,
   FMX.Memo,
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  Winapi.ShlObj,
-  Winapi.ActiveX,
-  {$ENDIF}
   {$IFDEF ANDROID}
   Androidapi.JNI.App,
   Androidapi.JNI.Embarcadero,
@@ -96,6 +97,9 @@ type
     FPlatform: string;
     FLoadThread: TImageLoadThread;
     FAnimatingOpacity: Boolean;
+    FNextBitmap: TBitmap;
+    FFadeOut, FFadeIn: TFloatAnimation;
+    FMoveOut, FMoveIn: TFloatAnimation;
     procedure LoadImageFiles;
     procedure ShowImage(Index: Integer);
     procedure ApplyTransition(NewBitmap: TBitmap);
@@ -111,11 +115,14 @@ type
     procedure OpenFolderViaWin64Dialog;
     {$ENDIF}
     procedure SafeLoadImage(const FilePath: string);
-  public
+    procedure FadeOutFinished(Sender: TObject);
+    procedure AnimateMove(NewBitmap: TBitmap; OutTo, InFrom, Seconds: Single);
+    procedure MoveProcess(Sender: TObject);
+    procedure MoveOutFinished(Sender: TObject);
+    procedure MoveInFinished(Sender: TObject);
     procedure AnimateFade(NewBitmap: TBitmap);
-    procedure AnimateSlide(NewBitmap: TBitmap);
-    procedure AnimateZoom(NewBitmap: TBitmap);
-    procedure AnimateScale(NewBitmap: TBitmap);
+  public
+
   end;
 
 var
@@ -230,16 +237,35 @@ begin
   ProgressBar.Visible := False;
 
   UpdateUILabels;
+  FNextBitmap := TBitmap.Create;
+  FFadeOut := TFloatAnimation.Create(Self);
+  FFadeOut.Parent := ImgMain;
+  FFadeOut.PropertyName := 'Opacity';
+  FFadeOut.StartValue := 1;  FFadeOut.StopValue := 0;
+  FFadeOut.Duration := 0.25;
+  FFadeOut.OnFinish := FadeOutFinished;
+  FFadeIn := TFloatAnimation.Create(Self);
+  FFadeIn.Parent := ImgMain;
+  FFadeIn.PropertyName := 'Opacity';
+  FFadeIn.StartValue := 0;  FFadeIn.StopValue := 1;
+  FFadeIn.Duration := 0.25;
+  FMoveOut := TFloatAnimation.Create(Self);
+  FMoveOut.Parent := ImgMain;
+  FMoveOut.PropertyName := 'Margins.Left';
+  FMoveOut.StartValue := 0;
+  FMoveOut.OnProcess := MoveProcess;
+  FMoveOut.OnFinish := MoveOutFinished;
+  FMoveIn := TFloatAnimation.Create(Self);
+  FMoveIn.Parent := ImgMain;
+  FMoveIn.PropertyName := 'Margins.Left';
+  FMoveIn.StopValue := 0;
+  FMoveIn.OnProcess := MoveProcess;
+  FMoveIn.OnFinish := MoveInFinished;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
   TimerSlide.Enabled := False;
-  if Assigned(FLoadThread) then
-  begin
-    FLoadThread.Terminate;
-    FLoadThread.WaitFor;
-  end;
   FreeAndNil(FFiles);
 end;
 
@@ -305,7 +331,7 @@ end;
 
 procedure TForm1.ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo);
 begin
-  if EventInfo.GestureID = igiLongPress then
+  if EventInfo.GestureID = igiLongTap then
   begin
     if FPlaying then
       BtnPlayPauseClick(nil);
@@ -433,10 +459,10 @@ begin
   end;
 
   try
-    if FindFirst(TPath.Combine(FFolder, '*.*'), faAnyFile, SR) = 0 then
+    if FindFirst(System.IOUtils.TPath.Combine(FFolder, '*.*'), faAnyFile, SR) = 0 then
     try
       repeat
-        FilePath := TPath.Combine(FFolder, SR.Name);
+        FilePath := System.IOUtils.TPath.Combine(FFolder, SR.Name);
         if not TDirectory.Exists(FilePath) then
         begin
           FileName := LowerCase(ExtractFileExt(FilePath));
@@ -486,11 +512,6 @@ end;
 procedure TForm1.SafeLoadImage(const FilePath: string);
 begin
   // Kill existing load thread if still running
-  if Assigned(FLoadThread) then
-  begin
-    FLoadThread.Terminate;
-    FLoadThread := nil;
-  end;
 
   // Create new load thread
   FLoadThread := TImageLoadThread.Create(FilePath, procedure(Bitmap: TBitmap)
@@ -514,141 +535,74 @@ end;
 
 procedure TForm1.ApplyTransition(NewBitmap: TBitmap);
 begin
-  case IndexText(FTransition, ['Fade', 'Slide', 'Zoom', 'Scale', 'None']) of
+  if SameText(FTransition, 'Fade') then
+    AnimateFade(NewBitmap)
+  else
+  begin
+  case IndexText(FTransition, ['Fade', 'Slide', 'Zoom', 'Scale']) of
     0: AnimateFade(NewBitmap);
-    1: AnimateSlide(NewBitmap);
-    2: AnimateZoom(NewBitmap);
-    3: AnimateScale(NewBitmap);
-    4: ImgMain.Bitmap.Assign(NewBitmap);
+    1: AnimateMove(NewBitmap, ImgMain.Width, -ImgMain.Width, 0.35);
+    2: AnimateMove(NewBitmap, ImgMain.Height * 0.15, ImgMain.Height * 0.15, 0.3);
+    3: AnimateMove(NewBitmap, -20, -20, 0.4);
+  else
+    ImgMain.Opacity := 1;
+    ImgMain.Bitmap.Assign(NewBitmap);
+  end;
   end;
 end;
 
 procedure TForm1.AnimateFade(NewBitmap: TBitmap);
-var
-  FadeOutAnim: TFloatAnimation;
 begin
-  if FAnimatingOpacity then
+  FNextBitmap.Assign(NewBitmap); // our own copy; the thread frees its one
+  if FFadeOut.Running or FFadeIn.Running then
+    Exit;                        // a fade is running; it'll show the newest copy
+  FFadeOut.Start;
+end;
+
+procedure TForm1.FadeOutFinished(Sender: TObject);
+begin
+  ImgMain.Bitmap.Assign(FNextBitmap);
+  FFadeIn.Start;
+end;
+
+procedure TForm1.AnimateMove(NewBitmap: TBitmap; OutTo, InFrom, Seconds: Single);
+begin
+  FNextBitmap.Assign(NewBitmap);
+  if FMoveOut.Running or FMoveIn.Running then
     Exit;
-
-  FAnimatingOpacity := True;
-
-  FadeOutAnim := TFloatAnimation.Create(nil);
-  FadeOutAnim.Parent := ImgMain;
-  FadeOutAnim.StartValue := 1.0;
-  FadeOutAnim.StopValue := 0.0;
-  FadeOutAnim.Duration := 0.25;
-  FadeOutAnim.PropertyName := 'Opacity';
-  FadeOutAnim.OnFinish := procedure(Sender: TObject)
-  var
-    FadeInAnim: TFloatAnimation;
-  begin
-    ImgMain.Bitmap.Assign(NewBitmap);
-    ImgMain.Opacity := 0.0;
-
-    FadeInAnim := TFloatAnimation.Create(nil);
-    FadeInAnim.Parent := ImgMain;
-    FadeInAnim.StartValue := 0.0;
-    FadeInAnim.StopValue := 1.0;
-    FadeInAnim.Duration := 0.25;
-    FadeInAnim.PropertyName := 'Opacity';
-    FadeInAnim.OnFinish := procedure(Sender: TObject)
-    begin
-      FAnimatingOpacity := False;
-    end;
-    FadeInAnim.Start;
-  end;
-  FadeOutAnim.Start;
+  FMoveOut.StopValue := OutTo;
+  FMoveIn.StartValue := InFrom;
+  FMoveOut.Duration := Seconds;
+  FMoveIn.Duration := Seconds;
+  FMoveOut.Start;
 end;
 
-procedure TForm1.AnimateSlide(NewBitmap: TBitmap);
+procedure TForm1.MoveProcess(Sender: TObject);
 var
-  SlideOutAnim: TFloatAnimation;
+  M: Single;
 begin
-  SlideOutAnim := TFloatAnimation.Create(nil);
-  SlideOutAnim.Parent := ImgMain;
-  SlideOutAnim.StartValue := 0;
-  SlideOutAnim.StopValue := ImgMain.Width;
-  SlideOutAnim.Duration := 0.35;
-  SlideOutAnim.PropertyName := 'Position.X';
-  SlideOutAnim.OnFinish := procedure(Sender: TObject)
-  var
-    SlideInAnim: TFloatAnimation;
+  M := ImgMain.Margins.Left;
+  if SameText(FTransition, 'Slide') then
+    ImgMain.Margins.Right := -M   // same width, just shifted
+  else
   begin
-    ImgMain.Bitmap.Assign(NewBitmap);
-    ImgMain.Position.X := -ImgMain.Width;
-    ImgMain.Opacity := 1.0;
-
-    SlideInAnim := TFloatAnimation.Create(nil);
-    SlideInAnim.Parent := ImgMain;
-    SlideInAnim.StartValue := -ImgMain.Width;
-    SlideInAnim.StopValue := 0;
-    SlideInAnim.Duration := 0.35;
-    SlideInAnim.PropertyName := 'Position.X';
-    SlideInAnim.Start;
+    ImgMain.Margins.Right := M;   // all sides equal = zoom
+    ImgMain.Margins.Top := M;
+    ImgMain.Margins.Bottom := M;
   end;
-  SlideOutAnim.Start;
 end;
 
-procedure TForm1.AnimateZoom(NewBitmap: TBitmap);
-var
-  ZoomOutAnim: TFloatAnimation;
+procedure TForm1.MoveOutFinished(Sender: TObject);
 begin
-  ZoomOutAnim := TFloatAnimation.Create(nil);
-  ZoomOutAnim.Parent := ImgMain;
-  ZoomOutAnim.StartValue := 1.0;
-  ZoomOutAnim.StopValue := 0.7;
-  ZoomOutAnim.Duration := 0.3;
-  ZoomOutAnim.PropertyName := 'Scale.X';
-  ZoomOutAnim.OnFinish := procedure(Sender: TObject)
-  var
-    ZoomInAnim: TFloatAnimation;
-  begin
-    ImgMain.Bitmap.Assign(NewBitmap);
-    ImgMain.Scale.X := 0.7;
-    ImgMain.Scale.Y := 0.7;
-    ImgMain.Opacity := 1.0;
-
-    ZoomInAnim := TFloatAnimation.Create(nil);
-    ZoomInAnim.Parent := ImgMain;
-    ZoomInAnim.StartValue := 0.7;
-    ZoomInAnim.StopValue := 1.0;
-    ZoomInAnim.Duration := 0.3;
-    ZoomInAnim.PropertyName := 'Scale.X';
-    TFloatAnimation.Create(nil).Parent := ImgMain;
-    (ImgMain.ChildrenCount - 1);
-    ZoomInAnim.Start;
-  end;
-  ZoomOutAnim.Start;
+  ImgMain.Bitmap.Assign(FNextBitmap);
+  FMoveIn.Start;
 end;
 
-procedure TForm1.AnimateScale(NewBitmap: TBitmap);
-var
-  ScaleOutAnim: TFloatAnimation;
+procedure TForm1.MoveInFinished(Sender: TObject);
 begin
-  ScaleOutAnim := TFloatAnimation.Create(nil);
-  ScaleOutAnim.Parent := ImgMain;
-  ScaleOutAnim.StartValue := 1.0;
-  ScaleOutAnim.StopValue := 1.1;
-  ScaleOutAnim.Duration := 0.4;
-  ScaleOutAnim.PropertyName := 'Scale.X';
-  ScaleOutAnim.OnFinish := procedure(Sender: TObject)
-  var
-    ScaleInAnim: TFloatAnimation;
-  begin
-    ImgMain.Bitmap.Assign(NewBitmap);
-    ImgMain.Scale.X := 1.1;
-    ImgMain.Scale.Y := 1.1;
-    ImgMain.Opacity := 1.0;
-
-    ScaleInAnim := TFloatAnimation.Create(nil);
-    ScaleInAnim.Parent := ImgMain;
-    ScaleInAnim.StartValue := 1.1;
-    ScaleInAnim.StopValue := 1.0;
-    ScaleInAnim.Duration := 0.4;
-    ScaleInAnim.PropertyName := 'Scale.X';
-    ScaleInAnim.Start;
-  end;
-  ScaleOutAnim.Start;
+  ImgMain.Margins.Rect := TRectF.Create(0, 0, 0, 0); // tidy up
 end;
+
+
 
 end.
