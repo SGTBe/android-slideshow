@@ -86,7 +86,9 @@ type
     procedure TrackDelayChange(Sender: TObject);
     procedure CbTransitionChange(Sender: TObject);
     procedure FormShow(Sender: TObject);
-    procedure ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo);
+    procedure ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo; var Handled: Boolean);
+    procedure ImgMainDblClick(Sender: TObject);
+
   private
     FFolder: string;
     FFiles: TStringList;
@@ -275,7 +277,8 @@ begin
   LogMessage('Welcome to Slideshow Viewer - ' + FPlatform);
 end;
 
-procedure TForm1.UpdateUILabels;
+
+Procedure TForm1.UpdateUILabels;
 begin
   LabelDelayValue.Text := Format('%d second%s', [Round(TrackDelay.Value),
     IfThen(TrackDelay.Value > 1, 's', '')]);
@@ -329,12 +332,19 @@ begin
     FTransition := CbTransition.Items[CbTransition.ItemIndex];
 end;
 
-procedure TForm1.ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo);
+
+procedure TForm1.ImgMainDblClick(Sender: TObject);
+begin
+   BtnPlayPauseClick(nil);
+end;
+
+Procedure TForm1.ImgMainGesture(Sender: TObject; const EventInfo: TGestureEventInfo; var Handled: Boolean);
 begin
   if EventInfo.GestureID = igiLongTap then
   begin
     if FPlaying then
       BtnPlayPauseClick(nil);
+    Handled := True;
   end;
 end;
 
@@ -605,4 +615,6 @@ end;
 
 
 
-end.
+
+
+End.

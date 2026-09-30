@@ -21,6 +21,8 @@ object Form1: TForm1
     Viewport.Width = 480.000000000000000000
     Viewport.Height = 800.000000000000000000
     object ImgMain: TImage
+      Touch.InteractiveGestures = [LongTap]
+      OnGesture = ImgMainGesture
       MultiResBitmap = <
         item
         end>
@@ -28,6 +30,7 @@ object Form1: TForm1
       Size.Width = 480.000000000000000000
       Size.Height = 420.000000000000000000
       Size.PlatformDefault = False
+      OnDblClick = ImgMainDblClick
       object ShadowEffect: TShadowEffect
         Distance = 3.000000000000000000
         Direction = 45.000000000000000000
@@ -37,7 +40,7 @@ object Form1: TForm1
       end
     end
     object LayoutControls: TGridLayout
-      Align = Top
+      Align = Bottom
       ItemHeight = 40.000000000000000000
       ItemWidth = 460.000000000000000000
       Padding.Left = 4.000000000000000000
@@ -50,9 +53,9 @@ object Form1: TForm1
       Margins.Right = 8.000000000000000000
       Margins.Bottom = 8.000000000000000000
       Position.X = 8.000000000000000000
-      Position.Y = 428.000000000000000000
+      Position.Y = 332.000000000000000000
       Size.Width = 464.000000000000000000
-      Size.Height = 360.000000000000000000
+      Size.Height = 460.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 1
       object BtnChooseFolder: TButton
@@ -60,7 +63,6 @@ object Form1: TForm1
         Size.Width = 460.000000000000000000
         Size.Height = 40.000000000000000000
         Size.PlatformDefault = False
-        StyleLookup = 'toolarrow'
         TabOrder = 0
         Text = 'Open Folder'
         OnClick = BtnChooseFolderClick
@@ -70,7 +72,6 @@ object Form1: TForm1
         Size.Width = 460.000000000000000000
         Size.Height = 40.000000000000000000
         Size.PlatformDefault = False
-        StyleLookup = 'toolarrow'
         TabOrder = 1
         Text = 'Play'
         OnClick = BtnPlayPauseClick
@@ -156,7 +157,7 @@ object Form1: TForm1
         Size.Height = 40.000000000000000000
         Size.PlatformDefault = False
         TextSettings.FontColor = claSilver
-        Text = #240#376#8220#129' No folder selected'
+        Text = 'No folder selected'
       end
       object LabelStatus: TLabel
         Align = Top
